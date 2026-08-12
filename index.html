@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wedding Tracker</title>
+<style>
+  :root {
+    --pink: #b76e79;
+    --pink-light: #f7e8ea;
+    --ink: #33292b;
+    --muted: #8a7a7c;
+    --border: #e6d9db;
+    --bg: #fffaf9;
+    --card: #ffffff;
+    --green: #4c8c66;
+    --amber: #b9862f;
+    --red: #b74c4c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  header {
+    background: var(--pink);
+    color: white;
+    padding: 18px 24px;
+  }
+  header h1 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+  nav {
+    display: flex;
+    background: var(--pink-light);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    gap: 4px;
+    overflow-x: auto;
+  }
+  nav button {
+    background: none;
+    border: none;
+    padding: 12px 16px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    color: var(--muted);
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+  }
+  nav button.active {
+    color: var(--pink);
+    border-bottom: 3px solid var(--pink);
+    font-weight: 600;
+  }
+  nav button.add-event-btn {
+    color: var(--pink);
+    border: 1px dashed var(--pink);
+    border-radius: 6px;
+    margin: 6px 4px;
+    padding: 6px 12px;
+  }
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; text-align: center;
+  }
+  .card .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .card .value { font-size: 1.5rem; font-weight: 700; margin-top: 4px; }
+  .card .value.over { color: var(--red); }
+  .card .value.ok { color: var(--green); }
+
+  .budget-input-row { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-size: 0.95rem; }
+  .budget-input-row input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; width: 140px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 0.88rem; }
+  th { background: var(--pink-light); color: var(--ink); font-weight: 600; }
+  td input, td select, td textarea {
+    width: 100%; border: 1px solid transparent; background: transparent; padding: 4px; font-size: 0.85rem; border-radius: 4px;
+    font-family: inherit;
+  }
+  td input:focus, td select:focus, td textarea:focus { border: 1px solid var(--pink); background: white; outline: none; }
+  tr:hover td { background: #fdf6f6; }
+  .num-cell input { text-align: right; }
+  .row-actions button {
+    background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem;
+  }
+  tfoot td { font-weight: 700; background: var(--pink-light); }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .btn {
+    background: var(--pink); color: white; border: none; padding: 8px 14px; border-radius: 6px;
+    cursor: pointer; font-size: 0.88rem;
+  }
+  .btn.secondary { background: white; color: var(--pink); border: 1px solid var(--pink); }
+  .btn:hover { opacity: 0.9; }
+
+  .table-wrap { overflow-x: auto; margin-bottom: 8px; }
+
+  .status-pill { padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+  .status-done { background: #e3f3e9; color: var(--green); }
+  .status-progress { background: #fdf1de; color: var(--amber); }
+  .status-notstarted { background: #f4e9ea; color: var(--muted); }
+
+  .timeline-list { display: flex; flex-direction: column; gap: 6px; }
+  .timeline-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--pink);
+    border-radius: 6px; padding: 8px 12px; font-size: 0.88rem;
+  }
+  .timeline-item.no-date { border-left-color: var(--border); }
+  .timeline-item .task-name { font-weight: 600; }
+  .timeline-item .task-meta { color: var(--muted); font-size: 0.78rem; }
+  .timeline-item .task-date { font-size: 0.8rem; color: var(--muted); min-width: 90px; text-align: right; }
+
+  .event-header {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px; margin-bottom: 24px;
+  }
+  .event-header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .event-name-input {
+    font-size: 1.25rem; font-weight: 700; border: 1px solid transparent; border-radius: 6px;
+    padding: 4px 6px; font-family: inherit; color: var(--ink); flex: 1; min-width: 200px;
+  }
+  .event-name-input:focus { border: 1px solid var(--pink); outline: none; }
+  .delete-event-btn {
+    background: none; border: 1px solid var(--red); color: var(--red); padding: 6px 12px;
+    border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;
+  }
+  .delete-event-btn:hover { background: #fdeded; }
+  .event-header-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 14px;
+  }
+  .event-header-grid label { display: block; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+  .event-header-grid input, .event-header-grid select {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem; font-family: inherit;
+  }
+  .event-header-notes { margin-top: 14px; }
+  .event-header-notes label { display: block; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+  .event-header-notes textarea {
+    width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit;
+    font-size: 0.88rem; min-height: 46px; resize: vertical;
+  }
+
+  .section-title { font-size: 1.05rem; font-weight: 700; margin: 30px 0 12px; color: var(--ink); }
+  .section-title:first-of-type { margin-top: 0; }
+
+  .footer-note { margin-top: 30px; font-size: 0.78rem; color: var(--muted); text-align: center; }
+  .empty-state { color: var(--muted); font-size: 0.88rem; padding: 16px; text-align: center; }
+
+  .upcoming-badge { font-size: 0.72rem; background: var(--pink-light); color: var(--pink); padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+
+  .venue-row-booked td { background: var(--pink-light); }
+  .venue-intro { font-size: 0.85rem; color: var(--muted); }
+
+  .guest-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .guest-stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; text-align: center; min-width: 90px; }
+  .guest-stat .label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .guest-stat .value { font-size: 1.15rem; font-weight: 700; }
+
+  .invitation-block { margin-top: 14px; }
+  .invitation-block label { display: block; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+  .invitation-block input { width: 100%; max-width: 420px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem; font-family: inherit; }
+  .invitation-hint { font-size: 0.75rem; color: var(--muted); margin: 4px 0 0; }
+  .invitation-preview { margin-top: 10px; }
+  .invitation-preview img { max-width: 240px; max-height: 320px; border-radius: 8px; border: 1px solid var(--border); display: block; }
+  .invitation-preview .invite-error { text-align: left; padding: 0; margin-top: 4px; color: var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>💍 Wedding Tracker</h1>
+</header>
+
+<nav id="nav-bar"></nav>
+
+<main>
+  <div id="content"></div>
+  <p class="footer-note">Everything on this page is saved automatically to this browser only (localStorage) — no account, no server, no cost. Use "Export backup" on the Dashboard regularly and especially before clearing browser data.</p>
+</main>
+
+<script>
+const STORAGE_KEY = 'weddingTrackerData';
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function defaultData() {
+  return {
+    totalBudget: 20000,
+    events: [
+      {
+        id: 'sample-event',
+        name: 'Sample Event (edit or delete me)',
+        date: '',
+        time: '',
+        location: '',
+        vendor: '',
+        status: 'Planning',
+        notes: 'This is example data so you can see how the app works. Rename this event, edit these rows, or delete them and add your own — everything is editable. Click "+ Add event" above to add more events (ceremony, reception, shower, rehearsal dinner, etc.).',
+        budgetItems: [
+          { category: 'Venue', item: 'Example: Venue deposit', cost: 500, paid: 500, status: 'Done', dueDate: '', notes: '' },
+          { category: 'Catering', item: 'Example: Catering estimate', cost: 3000, paid: 0, status: 'To do', dueDate: '', notes: '' }
+        ],
+        tasks: [
+          { task: 'Example: Book venue', category: 'Venue', dueDate: '', priority: 'High', status: 'Done', notes: '' },
+          { task: 'Example: Send invitations', category: 'Stationery', dueDate: '', priority: 'Medium', status: 'Not Started', notes: '' }
+        ]
+      }
+    ]
+  };
+}
+
+let data = load();
+let activeTab = 'dashboard';
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { console.warn('Could not load saved data, starting fresh.', e); }
+  return defaultData();
+}
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function money(n) {
+  n = Number(n) || 0;
+  return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function selectHtml(options, selected) {
+  const opts = options.map(o => `<option value="${o}" ${o === selected ? 'selected' : ''}>${o}</option>`).join('');
+  return `<select>${opts}</select>`;
+}
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  return Math.ceil((new Date(dateStr + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+}
+
+const statusOptions = ['Planning', 'Booked', 'Confirmed', 'Done'];
+const priorityOptions = ['High', 'Medium', 'Low'];
+const taskStatusOptions = ['Not Started', 'In Progress', 'Done'];
+const venueStatusOptions = ['Considering', 'Contacted', 'Toured', 'Booked', 'Rejected'];
+const budgetStatusOptions = ['To do', 'In Progress', 'Done'];
+const rsvpOptions = ['Coming', 'Not Coming', 'Tentative', 'Unconfirmed'];
+const confirmedOptions = ['Yes', 'No'];
+
+// ---------- NAV ----------
+function renderNav() {
+  const nav = document.getElementById('nav-bar');
+  nav.innerHTML = '';
+
+  const dashBtn = document.createElement('button');
+  dashBtn.textContent = 'Dashboard';
+  dashBtn.className = activeTab === 'dashboard' ? 'active' : '';
+  dashBtn.addEventListener('click', () => switchTab('dashboard'));
+  nav.appendChild(dashBtn);
+
+  data.events.forEach(ev => {
+    const btn = document.createElement('button');
+    btn.textContent = ev.name || 'Untitled event';
+    btn.className = activeTab === ev.id ? 'active' : '';
+    btn.addEventListener('click', () => switchTab(ev.id));
+    nav.appendChild(btn);
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ Add event';
+  addBtn.className = 'add-event-btn';
+  addBtn.addEventListener('click', addEvent);
+  nav.appendChild(addBtn);
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  renderNav();
+  renderContent();
+}
+
+function addEvent() {
+  const newEvent = {
+    id: genId(),
+    name: 'New Event',
+    date: '', time: '', location: '', vendor: '', status: 'Planning', notes: '',
+    budgetItems: [],
+    tasks: []
+  };
+  data.events.push(newEvent);
+  save();
+  switchTab(newEvent.id);
+}
+
+// ---------- MAIN CONTENT ROUTER ----------
+function renderContent() {
+  const content = document.getElementById('content');
+  if (activeTab === 'dashboard') {
+    content.innerHTML = dashboardHtml();
+    bindDashboard();
+  } else {
+    const event = data.events.find(e => e.id === activeTab);
+    if (!event) { activeTab = 'dashboard'; return renderContent(); }
+    content.innerHTML = eventHtml(event);
+    bindEvent(event);
+  }
+}
+
+// ---------- DASHBOARD ----------
+function dashboardHtml() {
+  const totalEst = data.events.reduce((s, ev) => s + ev.budgetItems.reduce((a, r) => a + (Number(r.cost) || 0), 0), 0);
+  const totalPaid = data.events.reduce((s, ev) => s + ev.budgetItems.reduce((a, r) => a + (Number(r.paid) || 0), 0), 0);
+  const remaining = (data.totalBudget || 0) - totalEst;
+  const allTasks = data.events.flatMap(ev => ev.tasks.map(t => ({ ...t, eventName: ev.name })));
+  const tasksDone = allTasks.filter(t => t.status === 'Done').length;
+
+  const upcomingEvents = data.events
+    .filter(ev => ev.date)
+    .map(ev => ({ ...ev, days: daysUntil(ev.date) }))
+    .sort((a, b) => a.days - b.days);
+
+  const nextEvent = upcomingEvents.find(ev => ev.days >= 0);
+
+  const upcomingTasks = allTasks
+    .filter(t => t.dueDate && t.status !== 'Done')
+    .map(t => ({ ...t, days: daysUntil(t.dueDate) }))
+    .filter(t => t.days >= 0)
+    .sort((a, b) => a.days - b.days)
+    .slice(0, 5);
+
+  const eventsRows = upcomingEvents.length
+    ? upcomingEvents.map(ev => `
+        <tr>
+          <td>${escapeHtml(ev.name)}</td>
+          <td>${ev.date}</td>
+          <td>${ev.days < 0 ? 'Past' : ev.days + ' days'}</td>
+          <td><span class="status-pill ${ev.status === 'Done' ? 'status-done' : ev.status === 'Confirmed' || ev.status === 'Booked' ? 'status-progress' : 'status-notstarted'}">${escapeHtml(ev.status)}</span></td>
+        </tr>`).join('')
+    : `<tr><td colspan="4" class="empty-state">No event dates set yet — add dates on each event tab.</td></tr>`;
+
+  const tasksRows = upcomingTasks.length
+    ? upcomingTasks.map(t => `
+        <tr>
+          <td>${escapeHtml(t.task)}</td>
+          <td><span class="upcoming-badge">${escapeHtml(t.eventName)}</span></td>
+          <td>${t.dueDate}</td>
+          <td>${t.days} days</td>
+        </tr>`).join('')
+    : `<tr><td colspan="4" class="empty-state">No upcoming task due dates yet.</td></tr>`;
+
+  return `
+    <div class="budget-input-row">
+      <label for="total-budget">Total budget across all events ($):</label>
+      <input type="number" id="total-budget" min="0" step="1" value="${data.totalBudget || 0}">
+    </div>
+    <div class="cards">
+      <div class="card"><div class="label">Next event</div><div class="value">${nextEvent ? nextEvent.days + ' days' : '—'}</div>${nextEvent ? `<div class="task-meta" style="color:var(--muted);font-size:0.78rem;margin-top:2px;">${escapeHtml(nextEvent.name)}</div>` : ''}</div>
+      <div class="card"><div class="label">Total budget</div><div class="value">${money(data.totalBudget)}</div></div>
+      <div class="card"><div class="label">Estimated spend</div><div class="value">${money(totalEst)}</div></div>
+      <div class="card"><div class="label">Paid so far</div><div class="value">${money(totalPaid)}</div></div>
+      <div class="card"><div class="label">Remaining vs budget</div><div class="value ${remaining < 0 ? 'over' : 'ok'}">${money(remaining)}</div></div>
+      <div class="card"><div class="label">Tasks done</div><div class="value">${tasksDone} / ${allTasks.length}</div></div>
+      <div class="card"><div class="label">Events</div><div class="value">${data.events.length}</div></div>
+    </div>
+
+    <div class="section-title">Upcoming events</div>
+    <div class="table-wrap">
+      <table class="upcoming-table">
+        <thead><tr><th>Event</th><th>Date</th><th>Days until</th><th>Status</th></tr></thead>
+        <tbody>${eventsRows}</tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Upcoming tasks (next 5)</div>
+    <div class="table-wrap">
+      <table class="upcoming-table">
+        <thead><tr><th>Task</th><th>Event</th><th>Due date</th><th>Days until</th></tr></thead>
+        <tbody>${tasksRows}</tbody>
+      </table>
+    </div>
+
+    <div class="toolbar" style="margin-top:30px">
+      <span style="font-size:0.85rem;color:var(--muted)">Backup your data (stored only in this browser):</span>
+      <div>
+        <button class="btn secondary" id="export-btn">Export backup (.json)</button>
+        <button class="btn secondary" id="import-btn">Import backup</button>
+        <input type="file" id="import-file" accept="application/json" style="display:none">
+      </div>
+    </div>
+  `;
+}
+
+function bindDashboard() {
+  document.getElementById('total-budget').addEventListener('input', (e) => {
+    data.totalBudget = parseFloat(e.target.value) || 0;
+    save();
+    document.querySelector('.card .value').closest('.cards');
+    renderContent();
+  });
+  document.getElementById('export-btn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wedding-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+  document.getElementById('import-btn').addEventListener('click', () => {
+    document.getElementById('import-file').click();
+  });
+  document.getElementById('import-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed.events) throw new Error('bad shape');
+        data = parsed;
+        save();
+        activeTab = 'dashboard';
+        renderNav();
+        renderContent();
+      } catch (err) {
+        alert('Could not read that file — make sure it is a backup exported from this app.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+}
+
+// ---------- EVENT TAB ----------
+function eventHtml(event) {
+  const totalEst = event.budgetItems.reduce((s, r) => s + (Number(r.cost) || 0), 0);
+  const totalPaid = event.budgetItems.reduce((s, r) => s + (Number(r.paid) || 0), 0);
+
+  const budgetRows = event.budgetItems.map((row, i) => `
+    <tr data-i="${i}">
+      <td><input data-field="category" value="${escapeHtml(row.category)}"></td>
+      <td><input data-field="item" value="${escapeHtml(row.item)}"></td>
+      <td class="num-cell"><input data-field="cost" type="number" min="0" value="${row.cost ?? 0}"></td>
+      <td class="num-cell"><input data-field="paid" type="number" min="0" value="${row.paid ?? 0}"></td>
+      <td class="num-cell balance-cell">${money((row.cost || 0) - (row.paid || 0))}</td>
+      <td>${selectHtml(budgetStatusOptions, row.status || 'To do')}</td>
+      <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
+      <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+      <td class="row-actions"><button class="del-budget-row" title="Delete row">✕</button></td>
+    </tr>`).join('');
+
+  const taskRows = event.tasks.map((row, i) => `
+    <tr data-i="${i}">
+      <td><input data-field="task" value="${escapeHtml(row.task)}"></td>
+      <td><input data-field="category" value="${escapeHtml(row.category || '')}"></td>
+      <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
+      <td>${selectHtml(priorityOptions, row.priority)}</td>
+      <td>${selectHtml(taskStatusOptions, row.status)}</td>
+      <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+      <td class="row-actions"><button class="del-task-row" title="Delete row">✕</button></td>
+    </tr>`).join('');
+
+  const guestStats = (event.guestList || []).reduce((acc, g) => {
+    const hc = Number(g.headcount) || 0;
+    acc.total += hc;
+    if (g.rsvp === 'Coming') acc.coming += hc;
+    else if (g.rsvp === 'Not Coming') acc.notComing += hc;
+    else if (g.rsvp === 'Tentative') acc.tentative += hc;
+    else acc.unconfirmed += hc;
+    return acc;
+  }, { total: 0, coming: 0, tentative: 0, notComing: 0, unconfirmed: 0 });
+
+  const guestListSectionHtml = event.guestList ? `
+    <div class="section-title">Guest list &amp; RSVP</div>
+    <div class="guest-stats">
+      <div class="guest-stat"><div class="label">Total invited</div><div class="value">${guestStats.total}</div></div>
+      <div class="guest-stat"><div class="label">Coming</div><div class="value">${guestStats.coming}</div></div>
+      <div class="guest-stat"><div class="label">Tentative</div><div class="value">${guestStats.tentative}</div></div>
+      <div class="guest-stat"><div class="label">Not coming</div><div class="value">${guestStats.notComing}</div></div>
+      <div class="guest-stat"><div class="label">Unconfirmed</div><div class="value">${guestStats.unconfirmed}</div></div>
+    </div>
+    <div class="toolbar">
+      <span></span>
+      <div>
+        <button class="btn" id="add-guest-row">+ Add guest</button>
+        <button class="btn secondary" id="remove-guest-list">Remove guest list</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:32%">Guest name</th>
+            <th style="width:22%">RSVP status</th>
+            <th style="width:16%">Headcount</th>
+            <th style="width:22%">Headcount confirmed</th>
+            <th style="width:5%"></th>
+          </tr>
+        </thead>
+        <tbody id="guest-body">${event.guestList.map((row, i) => `
+          <tr data-i="${i}">
+            <td><input data-field="name" value="${escapeHtml(row.name)}"></td>
+            <td>${selectHtml(rsvpOptions, row.rsvp)}</td>
+            <td class="num-cell"><input data-field="headcount" type="number" min="0" value="${row.headcount ?? 0}"></td>
+            <td>${selectHtml(confirmedOptions, row.confirmed)}</td>
+            <td class="row-actions"><button class="del-guest-row" title="Delete row">✕</button></td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  ` : `
+    <div class="toolbar">
+      <span class="venue-intro">Track who's coming to this event?</span>
+      <button class="btn secondary" id="add-guest-list">+ Add guest list</button>
+    </div>
+  `;
+
+  const dayTimelineSectionHtml = event.dayTimeline ? `
+    <div class="section-title">Day-of timeline</div>
+    <div class="toolbar">
+      <span class="venue-intro">The run-of-show schedule for this event's actual day.</span>
+      <div>
+        <button class="btn" id="add-daytimeline-row">+ Add timeline item</button>
+        <button class="btn secondary" id="remove-day-timeline">Remove day-of timeline</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:12%">Time</th>
+            <th style="width:12%">Duration</th>
+            <th style="width:24%">Activity</th>
+            <th style="width:18%">Location</th>
+            <th style="width:29%">Notes</th>
+            <th style="width:5%"></th>
+          </tr>
+        </thead>
+        <tbody id="daytimeline-body">${event.dayTimeline.map((row, i) => `
+          <tr data-i="${i}">
+            <td><input data-field="time" placeholder="e.g. 6:00 PM" value="${escapeHtml(row.time || '')}"></td>
+            <td><input data-field="duration" placeholder="e.g. 1 hr" value="${escapeHtml(row.duration || '')}"></td>
+            <td><input data-field="activity" value="${escapeHtml(row.activity || '')}"></td>
+            <td><input data-field="location" value="${escapeHtml(row.location || '')}"></td>
+            <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+            <td class="row-actions"><button class="del-daytimeline-row" title="Delete row">✕</button></td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  ` : `
+    <div class="toolbar">
+      <span class="venue-intro">Want a run-of-show schedule for the actual day?</span>
+      <button class="btn secondary" id="add-day-timeline">+ Add day-of timeline</button>
+    </div>
+  `;
+
+  const venueSectionHtml = event.venueOptions ? `
+    <div class="section-title">Choosing a venue</div>
+    <div class="toolbar">
+      <span class="venue-intro">Compare venue options — set Status to "Booked" once you decide.</span>
+      <div>
+        <button class="btn" id="add-venue-row">+ Add venue option</button>
+        <button class="btn secondary" id="remove-venue-tracker">Remove venue tracker</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:16%">Venue name</th>
+            <th style="width:15%">Location</th>
+            <th style="width:10%">Estimated cost</th>
+            <th style="width:8%">Capacity</th>
+            <th style="width:12%">Status</th>
+            <th style="width:13%">Contact</th>
+            <th style="width:22%">Notes</th>
+            <th style="width:4%"></th>
+          </tr>
+        </thead>
+        <tbody id="venue-body">${event.venueOptions.map((row, i) => `
+          <tr data-i="${i}" class="${row.status === 'Booked' ? 'venue-row-booked' : ''}">
+            <td><input data-field="name" value="${escapeHtml(row.name)}"></td>
+            <td><input data-field="location" value="${escapeHtml(row.location || '')}"></td>
+            <td class="num-cell"><input data-field="estimated" type="number" min="0" value="${row.estimated ?? 0}"></td>
+            <td><input data-field="capacity" value="${escapeHtml(row.capacity || '')}"></td>
+            <td>${selectHtml(venueStatusOptions, row.status)}</td>
+            <td><input data-field="contact" value="${escapeHtml(row.contact || '')}"></td>
+            <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+            <td class="row-actions"><button class="del-venue-row" title="Delete row">✕</button></td>
+          </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  ` : `
+    <div class="toolbar">
+      <span class="venue-intro">Still deciding between venues for this event?</span>
+      <button class="btn secondary" id="add-venue-tracker">+ Add venue tracker</button>
+    </div>
+  `;
+
+  return `
+    <div class="event-header">
+      <div class="event-header-top">
+        <input class="event-name-input" id="event-name" value="${escapeHtml(event.name)}" placeholder="Event name">
+        <button class="delete-event-btn" id="delete-event">Delete this event</button>
+      </div>
+      <div class="event-header-grid">
+        <div><label>Date</label><input type="date" id="event-date" value="${event.date || ''}"></div>
+        <div><label>Time</label><input type="time" id="event-time" value="${event.time || ''}"></div>
+        <div><label>Location</label><input type="text" id="event-location" value="${escapeHtml(event.location || '')}"></div>
+        <div><label>Vendor / contact</label><input type="text" id="event-vendor" value="${escapeHtml(event.vendor || '')}"></div>
+        <div><label>Status</label>${selectHtml(statusOptions, event.status).replace('<select>', '<select id="event-status">')}</div>
+      </div>
+      <div class="event-header-notes">
+        <label>Notes</label>
+        <textarea id="event-notes">${escapeHtml(event.notes || '')}</textarea>
+      </div>
+      <div class="invitation-block">
+        <label>Invitation image</label>
+        <input type="text" id="event-invite" placeholder="e.g. nikkah-invite.jpg" value="${escapeHtml(event.invitationImage || '')}">
+        <p class="invitation-hint">Filename of an image saved in this same folder as index.html (e.g. "nikkah-invite.jpg").</p>
+        ${event.invitationImage ? `
+          <div class="invitation-preview">
+            <img src="${escapeHtml(event.invitationImage)}" alt="Invitation for ${escapeHtml(event.name)}" id="invite-img">
+            <p class="empty-state invite-error" id="invite-error" style="display:none">Couldn't find "${escapeHtml(event.invitationImage)}" in this folder. Save the image next to index.html with this exact filename.</p>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+
+    ${venueSectionHtml}
+
+    <div class="section-title">Budget for this event</div>
+    <div class="toolbar">
+      <span></span>
+      <button class="btn" id="add-budget-row">+ Add expense</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:11%">Category</th>
+            <th style="width:15%">Item / Vendor</th>
+            <th style="width:9%">Cost</th>
+            <th style="width:9%">Paid</th>
+            <th style="width:9%">Balance</th>
+            <th style="width:11%">Status</th>
+            <th style="width:10%">Due date</th>
+            <th style="width:19%">Notes</th>
+            <th style="width:4%"></th>
+          </tr>
+        </thead>
+        <tbody id="budget-body">${budgetRows}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2">Totals</td>
+            <td class="num-cell">${money(totalEst)}</td>
+            <td class="num-cell">${money(totalPaid)}</td>
+            <td class="num-cell">${money(totalEst - totalPaid)}</td>
+            <td colspan="4"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    ${guestListSectionHtml}
+
+    <div class="section-title">Tasks for this event</div>
+    <div class="toolbar">
+      <span></span>
+      <button class="btn" id="add-task-row">+ Add task</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:24%">Task</th>
+            <th style="width:12%">Category</th>
+            <th style="width:12%">Due date</th>
+            <th style="width:10%">Priority</th>
+            <th style="width:13%">Status</th>
+            <th style="width:23%">Notes</th>
+            <th style="width:4%"></th>
+          </tr>
+        </thead>
+        <tbody id="task-body">${taskRows}</tbody>
+      </table>
+    </div>
+
+    ${dayTimelineSectionHtml}
+  `;
+}
+
+function bindEvent(event) {
+  document.getElementById('event-name').addEventListener('input', (e) => {
+    event.name = e.target.value;
+    save();
+    renderNav();
+  });
+  document.getElementById('event-date').addEventListener('change', (e) => { event.date = e.target.value; save(); });
+  document.getElementById('event-time').addEventListener('change', (e) => { event.time = e.target.value; save(); });
+  document.getElementById('event-location').addEventListener('input', (e) => { event.location = e.target.value; save(); });
+  document.getElementById('event-vendor').addEventListener('input', (e) => { event.vendor = e.target.value; save(); });
+  document.getElementById('event-status').addEventListener('change', (e) => { event.status = e.target.value; save(); });
+  document.getElementById('event-notes').addEventListener('input', (e) => { event.notes = e.target.value; save(); });
+  document.getElementById('event-invite').addEventListener('input', (e) => { event.invitationImage = e.target.value; save(); });
+  document.getElementById('event-invite').addEventListener('change', () => renderContent());
+  const inviteImg = document.getElementById('invite-img');
+  if (inviteImg) {
+    inviteImg.addEventListener('error', () => {
+      inviteImg.style.display = 'none';
+      document.getElementById('invite-error').style.display = 'block';
+    });
+  }
+
+  if (event.venueOptions) {
+    document.getElementById('add-venue-row').addEventListener('click', () => {
+      event.venueOptions.push({ name: '', location: '', estimated: 0, capacity: '', status: 'Considering', contact: '', notes: '' });
+      save();
+      renderContent();
+    });
+    document.getElementById('remove-venue-tracker').addEventListener('click', () => {
+      if (confirm('Remove the venue tracker for this event? This deletes all venue options you\'ve entered.')) {
+        delete event.venueOptions;
+        save();
+        renderContent();
+      }
+    });
+    document.querySelectorAll('#venue-body tr').forEach(tr => {
+      const i = Number(tr.dataset.i);
+      const row = event.venueOptions[i];
+      tr.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('input', () => {
+          row[inp.dataset.field] = inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value;
+          save();
+        });
+      });
+      tr.querySelector('select').addEventListener('change', (e) => { row.status = e.target.value; save(); renderContent(); });
+      tr.querySelector('.del-venue-row').addEventListener('click', () => {
+        event.venueOptions.splice(i, 1);
+        save();
+        renderContent();
+      });
+    });
+  } else {
+    document.getElementById('add-venue-tracker').addEventListener('click', () => {
+      event.venueOptions = [
+        { name: '', location: '', estimated: 0, capacity: '', status: 'Considering', contact: '', notes: '' }
+      ];
+      save();
+      renderContent();
+    });
+  }
+
+  if (event.guestList) {
+    document.getElementById('add-guest-row').addEventListener('click', () => {
+      event.guestList.push({ name: '', rsvp: 'Coming', headcount: 1, confirmed: 'Yes' });
+      save();
+      renderContent();
+    });
+    document.getElementById('remove-guest-list').addEventListener('click', () => {
+      if (confirm('Remove the guest list for this event? This deletes all guests you\'ve entered.')) {
+        delete event.guestList;
+        save();
+        renderContent();
+      }
+    });
+    document.querySelectorAll('#guest-body tr').forEach(tr => {
+      const i = Number(tr.dataset.i);
+      const row = event.guestList[i];
+      tr.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('input', () => {
+          row[inp.dataset.field] = inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value;
+          save();
+        });
+      });
+      const selects = tr.querySelectorAll('select');
+      selects[0].addEventListener('change', (e) => { row.rsvp = e.target.value; save(); renderContent(); });
+      selects[1].addEventListener('change', (e) => { row.confirmed = e.target.value; save(); });
+      tr.querySelector('.del-guest-row').addEventListener('click', () => {
+        event.guestList.splice(i, 1);
+        save();
+        renderContent();
+      });
+    });
+  } else {
+    document.getElementById('add-guest-list').addEventListener('click', () => {
+      event.guestList = [
+        { name: '', rsvp: 'Coming', headcount: 1, confirmed: 'Yes' }
+      ];
+      save();
+      renderContent();
+    });
+  }
+
+  if (event.dayTimeline) {
+    document.getElementById('add-daytimeline-row').addEventListener('click', () => {
+      event.dayTimeline.push({ time: '', duration: '', activity: '', location: '', notes: '' });
+      save();
+      renderContent();
+    });
+    document.getElementById('remove-day-timeline').addEventListener('click', () => {
+      if (confirm('Remove the day-of timeline for this event? This deletes everything in it.')) {
+        delete event.dayTimeline;
+        save();
+        renderContent();
+      }
+    });
+    document.querySelectorAll('#daytimeline-body tr').forEach(tr => {
+      const i = Number(tr.dataset.i);
+      const row = event.dayTimeline[i];
+      tr.querySelectorAll('input').forEach(inp => {
+        inp.addEventListener('input', () => { row[inp.dataset.field] = inp.value; save(); });
+      });
+      tr.querySelector('.del-daytimeline-row').addEventListener('click', () => {
+        event.dayTimeline.splice(i, 1);
+        save();
+        renderContent();
+      });
+    });
+  } else {
+    document.getElementById('add-day-timeline').addEventListener('click', () => {
+      event.dayTimeline = [
+        { time: '', duration: '', activity: '', location: '', notes: '' }
+      ];
+      save();
+      renderContent();
+    });
+  }
+
+  document.getElementById('delete-event').addEventListener('click', () => {
+    if (confirm(`Delete "${event.name}" and all of its budget and task data? This cannot be undone.`)) {
+      data.events = data.events.filter(ev => ev.id !== event.id);
+      save();
+      switchTab('dashboard');
+    }
+  });
+
+  document.getElementById('add-budget-row').addEventListener('click', () => {
+    event.budgetItems.push({ category: '', item: '', cost: 0, paid: 0, status: 'To do', dueDate: '', notes: '' });
+    save();
+    renderContent();
+  });
+  document.getElementById('add-task-row').addEventListener('click', () => {
+    event.tasks.push({ task: '', category: '', dueDate: '', priority: 'Medium', status: 'Not Started', notes: '' });
+    save();
+    renderContent();
+  });
+
+  document.querySelectorAll('#budget-body tr').forEach(tr => {
+    const i = Number(tr.dataset.i);
+    const row = event.budgetItems[i];
+    tr.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const field = inp.dataset.field;
+        row[field] = inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value;
+        if (field === 'cost' || field === 'paid') {
+          if ((Number(row.cost) || 0) > 0 && Number(row.paid) === Number(row.cost)) {
+            row.status = 'Done';
+          }
+        }
+        tr.querySelector('.balance-cell').textContent = money((row.cost || 0) - (row.paid || 0));
+        save();
+      });
+      inp.addEventListener('change', () => renderContent());
+    });
+    tr.querySelector('select').addEventListener('change', (e) => { row.status = e.target.value; save(); renderContent(); });
+    tr.querySelector('.del-budget-row').addEventListener('click', () => {
+      event.budgetItems.splice(i, 1);
+      save();
+      renderContent();
+    });
+  });
+
+  document.querySelectorAll('#task-body tr').forEach(tr => {
+    const i = Number(tr.dataset.i);
+    const row = event.tasks[i];
+    tr.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', () => { row[inp.dataset.field] = inp.value; save(); });
+      inp.addEventListener('change', () => renderContent());
+    });
+    const selects = tr.querySelectorAll('select');
+    selects[0].addEventListener('change', (e) => { row.priority = e.target.value; save(); renderContent(); });
+    selects[1].addEventListener('change', (e) => { row.status = e.target.value; save(); renderContent(); });
+    tr.querySelector('.del-task-row').addEventListener('click', () => {
+      event.tasks.splice(i, 1);
+      save();
+      renderContent();
+    });
+  });
+}
+
+// ---------- INIT ----------
+renderNav();
+renderContent();
+</script>
+
+</body>
+</html>
