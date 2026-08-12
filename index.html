@@ -101,9 +101,14 @@
   .table-wrap { overflow-x: auto; margin-bottom: 8px; }
 
   .status-pill { padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
-  .status-done { background: #e3f3e9; color: var(--green); }
-  .status-progress { background: #fdf1de; color: var(--amber); }
-  .status-notstarted { background: #f4e9ea; color: var(--muted); }
+
+  .tag-gray { background: #f4e9ea; color: var(--muted); }
+  .tag-blue { background: #e3edf7; color: #3b6ea5; }
+  .tag-amber { background: #fdf1de; color: var(--amber); }
+  .tag-green { background: #e3f3e9; color: var(--green); }
+  .tag-purple { background: #efe6f7; color: #7c4fa3; }
+  .tag-red { background: #fbe6e6; color: var(--red); }
+  select.tag-select { font-weight: 600; cursor: pointer; }
 
   .timeline-list { display: flex; flex-direction: column; gap: 6px; }
   .timeline-item {
@@ -240,14 +245,53 @@ function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function selectHtml(options, selected) {
+function selectHtml(options, selected, colorize) {
   const opts = options.map(o => `<option value="${o}" ${o === selected ? 'selected' : ''}>${o}</option>`).join('');
-  return `<select>${opts}</select>`;
+  const cls = colorize ? ` class="tag-select ${tagClass(selected)}"` : '';
+  return `<select${cls}>${opts}</select>`;
+}
+
+const STATUS_COLORS = {
+  'Planning': 'gray',
+  'Booked': 'blue',
+  'Confirmed': 'amber',
+  'Done': 'green',
+  'To do': 'gray',
+  'Not Started': 'gray',
+  'In Progress': 'amber',
+  'Considering': 'gray',
+  'Contacted': 'blue',
+  'Toured': 'purple',
+  'Rejected': 'red',
+  'Coming': 'green',
+  'Not Coming': 'red',
+  'Tentative': 'amber',
+  'Unconfirmed': 'gray',
+  'Yes': 'green',
+  'No': 'gray'
+};
+
+function tagClass(status) {
+  return 'tag-' + (STATUS_COLORS[status] || 'gray');
 }
 
 function daysUntil(dateStr) {
   if (!dateStr) return null;
   return Math.ceil((new Date(dateStr + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
+}
+
+function formatDateShort(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function sortedByDate(events) {
+  return [...events].sort((a, b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date.localeCompare(b.date);
+  });
 }
 
 const statusOptions = ['Planning', 'Booked', 'Confirmed', 'Done'];
@@ -269,9 +313,9 @@ function renderNav() {
   dashBtn.addEventListener('click', () => switchTab('dashboard'));
   nav.appendChild(dashBtn);
 
-  data.events.forEach(ev => {
+  sortedByDate(data.events).forEach(ev => {
     const btn = document.createElement('button');
-    btn.textContent = ev.name || 'Untitled event';
+    btn.textContent = (ev.name || 'Untitled event') + (ev.date ? ' · ' + formatDateShort(ev.date) : '');
     btn.className = activeTab === ev.id ? 'active' : '';
     btn.addEventListener('click', () => switchTab(ev.id));
     nav.appendChild(btn);
@@ -345,7 +389,7 @@ function dashboardHtml() {
           <td>${escapeHtml(ev.name)}</td>
           <td>${ev.date}</td>
           <td>${ev.days < 0 ? 'Past' : ev.days + ' days'}</td>
-          <td><span class="status-pill ${ev.status === 'Done' ? 'status-done' : ev.status === 'Confirmed' || ev.status === 'Booked' ? 'status-progress' : 'status-notstarted'}">${escapeHtml(ev.status)}</span></td>
+          <td><span class="status-pill ${tagClass(ev.status)}">${escapeHtml(ev.status)}</span></td>
         </tr>`).join('')
     : `<tr><td colspan="4" class="empty-state">No event dates set yet — add dates on each event tab.</td></tr>`;
 
@@ -454,7 +498,7 @@ function eventHtml(event) {
       <td class="num-cell"><input data-field="cost" type="number" min="0" value="${row.cost ?? 0}"></td>
       <td class="num-cell"><input data-field="paid" type="number" min="0" value="${row.paid ?? 0}"></td>
       <td class="num-cell balance-cell">${money((row.cost || 0) - (row.paid || 0))}</td>
-      <td>${selectHtml(budgetStatusOptions, row.status || 'To do')}</td>
+      <td>${selectHtml(budgetStatusOptions, row.status || 'To do', true)}</td>
       <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
       <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
       <td class="row-actions"><button class="del-budget-row" title="Delete row">✕</button></td>
@@ -466,7 +510,7 @@ function eventHtml(event) {
       <td><input data-field="category" value="${escapeHtml(row.category || '')}"></td>
       <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
       <td>${selectHtml(priorityOptions, row.priority)}</td>
-      <td>${selectHtml(taskStatusOptions, row.status)}</td>
+      <td>${selectHtml(taskStatusOptions, row.status, true)}</td>
       <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
       <td class="row-actions"><button class="del-task-row" title="Delete row">✕</button></td>
     </tr>`).join('');
@@ -511,9 +555,9 @@ function eventHtml(event) {
         <tbody id="guest-body">${event.guestList.map((row, i) => `
           <tr data-i="${i}">
             <td><input data-field="name" value="${escapeHtml(row.name)}"></td>
-            <td>${selectHtml(rsvpOptions, row.rsvp)}</td>
+            <td>${selectHtml(rsvpOptions, row.rsvp, true)}</td>
             <td class="num-cell"><input data-field="headcount" type="number" min="0" value="${row.headcount ?? 0}"></td>
-            <td>${selectHtml(confirmedOptions, row.confirmed)}</td>
+            <td>${selectHtml(confirmedOptions, row.confirmed, true)}</td>
             <td class="row-actions"><button class="del-guest-row" title="Delete row">✕</button></td>
           </tr>`).join('')}</tbody>
       </table>
@@ -593,7 +637,7 @@ function eventHtml(event) {
             <td><input data-field="location" value="${escapeHtml(row.location || '')}"></td>
             <td class="num-cell"><input data-field="estimated" type="number" min="0" value="${row.estimated ?? 0}"></td>
             <td><input data-field="capacity" value="${escapeHtml(row.capacity || '')}"></td>
-            <td>${selectHtml(venueStatusOptions, row.status)}</td>
+            <td>${selectHtml(venueStatusOptions, row.status, true)}</td>
             <td><input data-field="contact" value="${escapeHtml(row.contact || '')}"></td>
             <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
             <td class="row-actions"><button class="del-venue-row" title="Delete row">✕</button></td>
@@ -618,7 +662,7 @@ function eventHtml(event) {
         <div><label>Time</label><input type="time" id="event-time" value="${event.time || ''}"></div>
         <div><label>Location</label><input type="text" id="event-location" value="${escapeHtml(event.location || '')}"></div>
         <div><label>Vendor / contact</label><input type="text" id="event-vendor" value="${escapeHtml(event.vendor || '')}"></div>
-        <div><label>Status</label>${selectHtml(statusOptions, event.status).replace('<select>', '<select id="event-status">')}</div>
+        <div><label>Status</label>${selectHtml(statusOptions, event.status, true).replace('<select ', '<select id="event-status" ')}</div>
       </div>
       <div class="event-header-notes">
         <label>Notes</label>
