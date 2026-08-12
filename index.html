@@ -110,6 +110,10 @@
   .tag-red { background: #fbe6e6; color: var(--red); }
   select.tag-select { font-weight: 600; cursor: pointer; }
 
+  .subsection-title { font-size: 0.85rem; font-weight: 700; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .category-filter { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; }
+  .category-filter select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem; font-family: inherit; }
+
   .timeline-list { display: flex; flex-direction: column; gap: 6px; }
   .timeline-item {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
@@ -223,6 +227,7 @@ function defaultData() {
 
 let data = load();
 let activeTab = 'dashboard';
+let budgetFilters = {};
 
 function load() {
   try {
@@ -488,10 +493,30 @@ function bindDashboard() {
 
 // ---------- EVENT TAB ----------
 function eventHtml(event) {
-  const totalEst = event.budgetItems.reduce((s, r) => s + (Number(r.cost) || 0), 0);
-  const totalPaid = event.budgetItems.reduce((s, r) => s + (Number(r.paid) || 0), 0);
+  const NO_CATEGORY = '__none__';
+  const budgetCategories = [...new Set(event.budgetItems.map(r => (r.category || '').trim()))];
+  const namedCategories = budgetCategories.filter(c => c !== '').sort((a, b) => a.localeCompare(b));
+  const hasUncategorized = budgetCategories.includes('');
+  const currentFilter = budgetFilters[event.id] || '';
 
-  const budgetRows = event.budgetItems.map((row, i) => `
+  const filterOptionsHtml = [
+    `<option value="">All categories</option>`,
+    ...namedCategories.map(c => `<option value="${escapeHtml(c)}" ${currentFilter === c ? 'selected' : ''}>${escapeHtml(c)}</option>`),
+    hasUncategorized ? `<option value="${NO_CATEGORY}" ${currentFilter === NO_CATEGORY ? 'selected' : ''}>Uncategorized</option>` : ''
+  ].join('');
+
+  const visibleBudgetItems = event.budgetItems
+    .map((row, i) => ({ row, i }))
+    .filter(({ row }) => {
+      if (!currentFilter) return true;
+      const cat = (row.category || '').trim();
+      return currentFilter === NO_CATEGORY ? cat === '' : cat === currentFilter;
+    });
+
+  const totalEst = visibleBudgetItems.reduce((s, { row }) => s + (Number(row.cost) || 0), 0);
+  const totalPaid = visibleBudgetItems.reduce((s, { row }) => s + (Number(row.paid) || 0), 0);
+
+  const budgetRows = visibleBudgetItems.length ? visibleBudgetItems.map(({ row, i }) => `
     <tr data-i="${i}">
       <td><input data-field="category" value="${escapeHtml(row.category)}"></td>
       <td><input data-field="item" value="${escapeHtml(row.item)}"></td>
@@ -502,7 +527,32 @@ function eventHtml(event) {
       <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
       <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
       <td class="row-actions"><button class="del-budget-row" title="Delete row">✕</button></td>
-    </tr>`).join('');
+    </tr>`).join('') : `<tr><td colspan="9" class="empty-state">No expenses in this category.</td></tr>`;
+
+  const categoryTotalsMap = {};
+  event.budgetItems.forEach(row => {
+    const cat = (row.category || '').trim() || 'Uncategorized';
+    if (!categoryTotalsMap[cat]) categoryTotalsMap[cat] = { cost: 0, paid: 0 };
+    categoryTotalsMap[cat].cost += Number(row.cost) || 0;
+    categoryTotalsMap[cat].paid += Number(row.paid) || 0;
+  });
+  const categoryTotalsHtml = event.budgetItems.length ? `
+    <div class="subsection-title">Totals by category</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Category</th><th>Cost</th><th>Paid</th><th>Balance</th></tr></thead>
+        <tbody>${Object.entries(categoryTotalsMap)
+          .sort((a, b) => b[1].cost - a[1].cost)
+          .map(([cat, t]) => `
+            <tr>
+              <td>${escapeHtml(cat)}</td>
+              <td class="num-cell">${money(t.cost)}</td>
+              <td class="num-cell">${money(t.paid)}</td>
+              <td class="num-cell">${money(t.cost - t.paid)}</td>
+            </tr>`).join('')}</tbody>
+      </table>
+    </div>
+  ` : '';
 
   const taskRows = event.tasks.map((row, i) => `
     <tr data-i="${i}">
@@ -685,7 +735,10 @@ function eventHtml(event) {
 
     <div class="section-title">Budget for this event</div>
     <div class="toolbar">
-      <span></span>
+      <div class="category-filter">
+        <label for="budget-category-filter">Filter:</label>
+        <select id="budget-category-filter">${filterOptionsHtml}</select>
+      </div>
       <button class="btn" id="add-budget-row">+ Add expense</button>
     </div>
     <div class="table-wrap">
@@ -706,7 +759,7 @@ function eventHtml(event) {
         <tbody id="budget-body">${budgetRows}</tbody>
         <tfoot>
           <tr>
-            <td colspan="2">Totals</td>
+            <td colspan="2">Totals${currentFilter ? ' (filtered)' : ''}</td>
             <td class="num-cell">${money(totalEst)}</td>
             <td class="num-cell">${money(totalPaid)}</td>
             <td class="num-cell">${money(totalEst - totalPaid)}</td>
@@ -715,6 +768,8 @@ function eventHtml(event) {
         </tfoot>
       </table>
     </div>
+
+    ${categoryTotalsHtml}
 
     ${guestListSectionHtml}
 
@@ -889,8 +944,14 @@ function bindEvent(event) {
     }
   });
 
+  document.getElementById('budget-category-filter').addEventListener('change', (e) => {
+    budgetFilters[event.id] = e.target.value;
+    renderContent();
+  });
   document.getElementById('add-budget-row').addEventListener('click', () => {
-    event.budgetItems.push({ category: '', item: '', cost: 0, paid: 0, status: 'To do', dueDate: '', notes: '' });
+    const currentFilter = budgetFilters[event.id] || '';
+    const prefillCategory = currentFilter && currentFilter !== '__none__' ? currentFilter : '';
+    event.budgetItems.push({ category: prefillCategory, item: '', cost: 0, paid: 0, status: 'To do', dueDate: '', notes: '' });
     save();
     renderContent();
   });
@@ -901,6 +962,7 @@ function bindEvent(event) {
   });
 
   document.querySelectorAll('#budget-body tr').forEach(tr => {
+    if (!tr.dataset.i) return;
     const i = Number(tr.dataset.i);
     const row = event.budgetItems[i];
     tr.querySelectorAll('input').forEach(inp => {
