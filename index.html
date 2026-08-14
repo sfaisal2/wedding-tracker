@@ -274,6 +274,8 @@ let data = load();
 let activeTab = 'dashboard';
 let budgetFilters = {};
 let collapsedSections = {};
+let uploadingInvite = false;
+let inviteUploadError = '';
 
 function load() {
   try {
@@ -993,12 +995,19 @@ function eventHtml(event) {
       </div>
       <div class="invitation-block">
         <label>Invitation image</label>
-        <input type="text" id="event-invite" placeholder="e.g. nikkah-invite.jpg" value="${escapeHtml(event.invitationImage || '')}">
-        <p class="invitation-hint">Filename of an image saved in this same folder as index.html (e.g. "nikkah-invite.jpg").</p>
+        ${supabaseClient ? `
+          <input type="file" id="event-invite-file" accept="image/*">
+          <p class="invitation-hint">Uploads to your synced Supabase storage — visible on every connected device.</p>
+          ${uploadingInvite ? `<p class="invitation-hint">Uploading…</p>` : ''}
+          ${inviteUploadError ? `<p class="invitation-hint" style="color:var(--red)">${escapeHtml(inviteUploadError)}</p>` : ''}
+        ` : `
+          <p class="invitation-hint">Connect sync (Dashboard &rarr; Sync across devices) to upload invitation photos.</p>
+        `}
         ${event.invitationImage ? `
           <div class="invitation-preview">
             <img src="${escapeHtml(event.invitationImage)}" alt="Invitation for ${escapeHtml(event.name)}" id="invite-img">
-            <p class="empty-state invite-error" id="invite-error" style="display:none">Couldn't find "${escapeHtml(event.invitationImage)}" in this folder. Save the image next to index.html with this exact filename.</p>
+            <p class="empty-state invite-error" id="invite-error" style="display:none">Couldn't load this image.</p>
+            <button class="btn secondary" id="remove-invite-btn" style="margin-top:8px">Remove photo</button>
           </div>
         ` : ''}
       </div>
@@ -1087,8 +1096,38 @@ function bindEvent(event) {
   document.getElementById('event-location').addEventListener('input', (e) => { event.location = e.target.value; save(); });
   document.getElementById('event-status').addEventListener('change', (e) => { event.status = e.target.value; save(); });
   document.getElementById('event-notes').addEventListener('input', (e) => { event.notes = e.target.value; save(); });
-  document.getElementById('event-invite').addEventListener('input', (e) => { event.invitationImage = e.target.value; save(); });
-  document.getElementById('event-invite').addEventListener('change', () => renderContent());
+  const inviteFileInput = document.getElementById('event-invite-file');
+  if (inviteFileInput) {
+    inviteFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      inviteUploadError = '';
+      uploadingInvite = true;
+      renderContent();
+      try {
+        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = `${event.id}-${Date.now()}.${ext}`;
+        const { error: uploadError } = await supabaseClient.storage.from('invitation-images').upload(path, file);
+        if (uploadError) throw uploadError;
+        const { data: urlData } = supabaseClient.storage.from('invitation-images').getPublicUrl(path);
+        event.invitationImage = urlData.publicUrl;
+        save();
+      } catch (err) {
+        inviteUploadError = 'Upload failed: ' + (err.message || 'unknown error');
+      }
+      uploadingInvite = false;
+      renderContent();
+    });
+  }
+  const removeInviteBtn = document.getElementById('remove-invite-btn');
+  if (removeInviteBtn) {
+    removeInviteBtn.addEventListener('click', () => {
+      event.invitationImage = '';
+      inviteUploadError = '';
+      save();
+      renderContent();
+    });
+  }
   const inviteImg = document.getElementById('invite-img');
   if (inviteImg) {
     inviteImg.addEventListener('error', () => {
