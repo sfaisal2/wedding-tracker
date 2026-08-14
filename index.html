@@ -380,18 +380,31 @@ function pushToSupabase() {
   pushTimer = setTimeout(pushToSupabaseImmediate, 800);
 }
 
+function isEditingSomething() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return document.getElementById('content').contains(el) && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+}
+
 function subscribeToChanges() {
   if (syncChannel) supabaseClient.removeChannel(syncChannel);
   syncChannel = supabaseClient
     .channel('wedding_data_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'wedding_data', filter: `id=eq.${SYNC_ROW_ID}` }, (payload) => {
       if (payload.new && payload.new.data) {
+        // Skip self-echoes: this is often just our own recent save being reflected back.
+        if (JSON.stringify(payload.new.data) === JSON.stringify(data)) return;
         applyingRemoteChange = true;
         data = payload.new.data;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         applyingRemoteChange = false;
-        renderNav();
-        renderContent();
+        // Don't yank focus/close an open dropdown while the user is mid-edit;
+        // the view will catch up next time it naturally re-renders.
+        if (!isEditingSomething()) {
+          renderNav();
+          renderContent();
+        }
       }
     })
     .subscribe();
