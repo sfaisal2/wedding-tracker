@@ -1086,10 +1086,12 @@ function eventHtml(event) {
 }
 
 function bindEvent(event) {
+  let eventNameNavTimer = null;
   document.getElementById('event-name').addEventListener('input', (e) => {
     event.name = e.target.value;
     save();
-    renderNav();
+    clearTimeout(eventNameNavTimer);
+    eventNameNavTimer = setTimeout(renderNav, 400);
   });
   document.getElementById('event-date').addEventListener('change', (e) => { event.date = e.target.value; save(); });
   document.getElementById('event-time').addEventListener('change', (e) => { event.time = e.target.value; save(); });
