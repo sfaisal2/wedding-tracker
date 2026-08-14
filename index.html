@@ -159,6 +159,23 @@
 
   .section-title { font-size: 1.05rem; font-weight: 700; margin: 30px 0 12px; color: var(--ink); }
   .section-title:first-of-type { margin-top: 0; }
+  .section-title.collapsible-header {
+    cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none;
+  }
+  .section-title.collapsible-header:hover { color: var(--pink); }
+  .section-title .chevron {
+    display: inline-block; font-size: 0.75rem; transition: transform 0.15s ease; color: var(--pink);
+  }
+  .section-title.is-collapsed .chevron { transform: rotate(-90deg); }
+
+  #back-to-top {
+    position: fixed; bottom: 24px; right: 24px; width: 46px; height: 46px; border-radius: 50%;
+    background: var(--pink); color: white; border: none; font-size: 1.3rem; line-height: 1; cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25); display: none; align-items: center; justify-content: center;
+    z-index: 200;
+  }
+  #back-to-top.visible { display: flex; }
+  #back-to-top:hover { opacity: 0.9; }
 
   .footer-note { margin-top: 30px; font-size: 0.78rem; color: var(--muted); text-align: center; }
   .empty-state { color: var(--muted); font-size: 0.88rem; padding: 16px; text-align: center; }
@@ -195,6 +212,8 @@
   <p class="footer-note">Everything on this page is saved automatically to this browser only (localStorage) — no account, no server, no cost. Use "Export backup" on the Dashboard regularly and especially before clearing browser data.</p>
 </main>
 
+<button id="back-to-top" title="Back to top" aria-label="Back to top">&#8593;</button>
+
 <script>
 const STORAGE_KEY = 'weddingTrackerData';
 
@@ -230,6 +249,7 @@ function defaultData() {
 let data = load();
 let activeTab = 'dashboard';
 let budgetFilters = {};
+let collapsedSections = {};
 
 function load() {
   try {
@@ -308,6 +328,39 @@ function sortedByDate(events) {
     if (!b.date) return -1;
     return a.date.localeCompare(b.date);
   });
+}
+
+function parseTimeToMinutes(str) {
+  if (!str) return null;
+  const match = String(str).match(/(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)?/);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2], 10);
+  const ampm = match[3] ? match[3].toLowerCase() : null;
+  if (ampm === 'pm' && hour < 12) hour += 12;
+  if (ampm === 'am' && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
+
+function indexedSortedByTime(items) {
+  return items
+    .map((row, i) => ({ row, i, mins: parseTimeToMinutes(row.time) }))
+    .sort((a, b) => {
+      if (a.mins === null && b.mins === null) return a.i - b.i;
+      if (a.mins === null) return 1;
+      if (b.mins === null) return -1;
+      return a.mins - b.mins;
+    });
+}
+
+function sectionHeader(key, title) {
+  const collapsed = !!collapsedSections[key];
+  return `<div class="section-title collapsible-header${collapsed ? ' is-collapsed' : ''}" data-section-toggle="${key}"><span class="chevron">&#9662;</span>${escapeHtml(title)}</div>`;
+}
+
+function sectionOpen(key) {
+  const collapsed = !!collapsedSections[key];
+  return `<div class="section-content" id="sec-${key}"${collapsed ? ' style="display:none"' : ''}>`;
 }
 
 const statusOptions = ['Planning', 'Booked', 'Confirmed', 'Done'];
@@ -434,20 +487,24 @@ function dashboardHtml() {
       <div class="card"><div class="label">Events</div><div class="value">${data.events.length}</div></div>
     </div>
 
-    <div class="section-title">Upcoming events</div>
+    ${sectionHeader('dash-upcoming-events', 'Upcoming events')}
+    ${sectionOpen('dash-upcoming-events')}
     <div class="table-wrap">
       <table class="upcoming-table">
         <thead><tr><th>Event</th><th>Date</th><th>Days until</th><th>Status</th></tr></thead>
         <tbody>${eventsRows}</tbody>
       </table>
     </div>
+    </div>
 
-    <div class="section-title">Upcoming tasks (next 5)</div>
+    ${sectionHeader('dash-upcoming-tasks', 'Upcoming tasks (next 5)')}
+    ${sectionOpen('dash-upcoming-tasks')}
     <div class="table-wrap">
       <table class="upcoming-table">
         <thead><tr><th>Task</th><th>Event</th><th>Due date</th><th>Days until</th></tr></thead>
         <tbody>${tasksRows}</tbody>
       </table>
+    </div>
     </div>
 
     <div class="toolbar" style="margin-top:30px">
@@ -586,7 +643,8 @@ function eventHtml(event) {
   }, { total: 0, coming: 0, tentative: 0, notComing: 0, unconfirmed: 0 });
 
   const guestListSectionHtml = event.guestList ? `
-    <div class="section-title">Guest list &amp; RSVP</div>
+    ${sectionHeader('guest-' + event.id, "Guest list & RSVP")}
+    ${sectionOpen('guest-' + event.id)}
     <div class="guest-stats">
       <div class="guest-stat"><div class="label">Total invited</div><div class="value">${guestStats.total}</div></div>
       <div class="guest-stat"><div class="label">Coming</div><div class="value">${guestStats.coming}</div></div>
@@ -622,6 +680,7 @@ function eventHtml(event) {
           </tr>`).join('')}</tbody>
       </table>
     </div>
+    </div>
   ` : `
     <div class="toolbar">
       <span class="venue-intro">Track who's coming to this event?</span>
@@ -629,10 +688,12 @@ function eventHtml(event) {
     </div>
   `;
 
+  const dayTimelineRows = event.dayTimeline ? indexedSortedByTime(event.dayTimeline) : [];
   const dayTimelineSectionHtml = event.dayTimeline ? `
-    <div class="section-title">Day-of timeline</div>
+    ${sectionHeader('daytimeline-' + event.id, 'Day-of timeline')}
+    ${sectionOpen('daytimeline-' + event.id)}
     <div class="toolbar">
-      <span class="venue-intro">The run-of-show schedule for this event's actual day.</span>
+      <span class="venue-intro">The run-of-show schedule for this event's actual day — sorted automatically by time.</span>
       <div>
         <button class="btn" id="add-daytimeline-row">+ Add timeline item</button>
         <button class="btn secondary" id="remove-day-timeline">Remove day-of timeline</button>
@@ -650,7 +711,7 @@ function eventHtml(event) {
             <th style="width:5%"></th>
           </tr>
         </thead>
-        <tbody id="daytimeline-body">${event.dayTimeline.map((row, i) => `
+        <tbody id="daytimeline-body">${dayTimelineRows.map(({ row, i }) => `
           <tr data-i="${i}">
             <td><input data-field="time" placeholder="e.g. 6:00 PM" value="${escapeHtml(row.time || '')}"></td>
             <td><input data-field="duration" placeholder="e.g. 1 hr" value="${escapeHtml(row.duration || '')}"></td>
@@ -661,6 +722,7 @@ function eventHtml(event) {
           </tr>`).join('')}</tbody>
       </table>
     </div>
+    </div>
   ` : `
     <div class="toolbar">
       <span class="venue-intro">Want a run-of-show schedule for the actual day?</span>
@@ -669,7 +731,8 @@ function eventHtml(event) {
   `;
 
   const venueSectionHtml = event.venueOptions ? `
-    <div class="section-title">Choosing a venue</div>
+    ${sectionHeader('venue-' + event.id, 'Choosing a venue')}
+    ${sectionOpen('venue-' + event.id)}
     <div class="toolbar">
       <span class="venue-intro">Compare venue options — set Status to "Booked" once you decide.</span>
       <div>
@@ -703,6 +766,7 @@ function eventHtml(event) {
             <td class="row-actions"><button class="del-venue-row" title="Delete row">✕</button></td>
           </tr>`).join('')}</tbody>
       </table>
+    </div>
     </div>
   ` : `
     <div class="toolbar">
@@ -742,7 +806,8 @@ function eventHtml(event) {
 
     ${venueSectionHtml}
 
-    <div class="section-title">Budget for this event</div>
+    ${sectionHeader('budget-' + event.id, 'Budget for this event')}
+    ${sectionOpen('budget-' + event.id)}
     <div class="toolbar">
       <div class="category-filter">
         <label for="budget-category-filter">Filter:</label>
@@ -779,10 +844,12 @@ function eventHtml(event) {
     </div>
 
     ${categoryTotalsHtml}
+    </div>
 
     ${guestListSectionHtml}
 
-    <div class="section-title">Tasks for this event</div>
+    ${sectionHeader('tasks-' + event.id, 'Tasks for this event')}
+    ${sectionOpen('tasks-' + event.id)}
     <div class="toolbar">
       <span></span>
       <button class="btn" id="add-task-row">+ Add task</button>
@@ -802,6 +869,7 @@ function eventHtml(event) {
         </thead>
         <tbody id="task-body">${taskRows}</tbody>
       </table>
+    </div>
     </div>
 
     ${dayTimelineSectionHtml}
@@ -928,6 +996,7 @@ function bindEvent(event) {
       const row = event.dayTimeline[i];
       tr.querySelectorAll('input, textarea').forEach(inp => {
         inp.addEventListener('input', () => { row[inp.dataset.field] = inp.value; save(); });
+        inp.addEventListener('change', () => renderContent());
       });
       tr.querySelector('.del-daytimeline-row').addEventListener('click', () => {
         event.dayTimeline.splice(i, 1);
@@ -1024,6 +1093,22 @@ document.addEventListener('focusin', (e) => {
     e.target.select();
   }
 });
+
+document.getElementById('content').addEventListener('click', (e) => {
+  const header = e.target.closest('[data-section-toggle]');
+  if (!header) return;
+  const key = header.dataset.sectionToggle;
+  collapsedSections[key] = !collapsedSections[key];
+  const body = document.getElementById('sec-' + key);
+  if (body) body.style.display = collapsedSections[key] ? 'none' : '';
+  header.classList.toggle('is-collapsed', collapsedSections[key]);
+});
+
+const backToTopBtn = document.getElementById('back-to-top');
+window.addEventListener('scroll', () => {
+  backToTopBtn.classList.toggle('visible', window.scrollY > 300);
+});
+backToTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
 // ---------- INIT ----------
 renderNav();
