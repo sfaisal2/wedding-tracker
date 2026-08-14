@@ -82,6 +82,9 @@
     width: 100%; border: 1px solid transparent; background: transparent; padding: 4px; font-size: 0.85rem; border-radius: 4px;
     font-family: inherit;
   }
+  td textarea.wrap-cell {
+    resize: vertical; min-height: 30px; white-space: normal; word-break: break-word; overflow: hidden; line-height: 1.35;
+  }
   td input:focus, td select:focus, td textarea:focus { border: 1px solid var(--pink); background: white; outline: none; }
   tr:hover td { background: #fdf6f6; }
   .num-cell input { text-align: right; }
@@ -248,6 +251,11 @@ function money(n) {
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
 }
 
 function selectHtml(options, selected, colorize) {
@@ -525,7 +533,7 @@ function eventHtml(event) {
       <td class="num-cell balance-cell">${money((row.cost || 0) - (row.paid || 0))}</td>
       <td>${selectHtml(budgetStatusOptions, row.status || 'To do', true)}</td>
       <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
-      <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+      <td><textarea data-field="notes" rows="1" class="wrap-cell">${escapeHtml(row.notes || '')}</textarea></td>
       <td class="row-actions"><button class="del-budget-row" title="Delete row">✕</button></td>
     </tr>`).join('') : `<tr><td colspan="9" class="empty-state">No expenses in this category.</td></tr>`;
 
@@ -561,7 +569,7 @@ function eventHtml(event) {
       <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
       <td>${selectHtml(priorityOptions, row.priority)}</td>
       <td>${selectHtml(taskStatusOptions, row.status, true)}</td>
-      <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+      <td><textarea data-field="notes" rows="1" class="wrap-cell">${escapeHtml(row.notes || '')}</textarea></td>
       <td class="row-actions"><button class="del-task-row" title="Delete row">✕</button></td>
     </tr>`).join('');
 
@@ -646,7 +654,7 @@ function eventHtml(event) {
             <td><input data-field="duration" placeholder="e.g. 1 hr" value="${escapeHtml(row.duration || '')}"></td>
             <td><input data-field="activity" value="${escapeHtml(row.activity || '')}"></td>
             <td><input data-field="location" value="${escapeHtml(row.location || '')}"></td>
-            <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+            <td><textarea data-field="notes" rows="1" class="wrap-cell">${escapeHtml(row.notes || '')}</textarea></td>
             <td class="row-actions"><button class="del-daytimeline-row" title="Delete row">✕</button></td>
           </tr>`).join('')}</tbody>
       </table>
@@ -683,13 +691,13 @@ function eventHtml(event) {
         </thead>
         <tbody id="venue-body">${event.venueOptions.map((row, i) => `
           <tr data-i="${i}" class="${row.status === 'Booked' ? 'venue-row-booked' : ''}">
-            <td><input data-field="name" value="${escapeHtml(row.name)}"></td>
-            <td><input data-field="location" value="${escapeHtml(row.location || '')}"></td>
+            <td><textarea data-field="name" rows="1" class="wrap-cell">${escapeHtml(row.name)}</textarea></td>
+            <td><textarea data-field="location" rows="1" class="wrap-cell">${escapeHtml(row.location || '')}</textarea></td>
             <td class="num-cell"><input data-field="estimated" type="number" min="0" value="${row.estimated ?? 0}"></td>
             <td><input data-field="capacity" value="${escapeHtml(row.capacity || '')}"></td>
             <td>${selectHtml(venueStatusOptions, row.status, true)}</td>
             <td><input data-field="contact" value="${escapeHtml(row.contact || '')}"></td>
-            <td><input data-field="notes" value="${escapeHtml(row.notes || '')}"></td>
+            <td><textarea data-field="notes" rows="1" class="wrap-cell">${escapeHtml(row.notes || '')}</textarea></td>
             <td class="row-actions"><button class="del-venue-row" title="Delete row">✕</button></td>
           </tr>`).join('')}</tbody>
       </table>
@@ -837,7 +845,7 @@ function bindEvent(event) {
     document.querySelectorAll('#venue-body tr').forEach(tr => {
       const i = Number(tr.dataset.i);
       const row = event.venueOptions[i];
-      tr.querySelectorAll('input').forEach(inp => {
+      tr.querySelectorAll('input, textarea').forEach(inp => {
         inp.addEventListener('input', () => {
           row[inp.dataset.field] = inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value;
           save();
@@ -917,7 +925,7 @@ function bindEvent(event) {
     document.querySelectorAll('#daytimeline-body tr').forEach(tr => {
       const i = Number(tr.dataset.i);
       const row = event.dayTimeline[i];
-      tr.querySelectorAll('input').forEach(inp => {
+      tr.querySelectorAll('input, textarea').forEach(inp => {
         inp.addEventListener('input', () => { row[inp.dataset.field] = inp.value; save(); });
       });
       tr.querySelector('.del-daytimeline-row').addEventListener('click', () => {
@@ -965,7 +973,7 @@ function bindEvent(event) {
     if (!tr.dataset.i) return;
     const i = Number(tr.dataset.i);
     const row = event.budgetItems[i];
-    tr.querySelectorAll('input').forEach(inp => {
+    tr.querySelectorAll('input, textarea').forEach(inp => {
       inp.addEventListener('input', () => {
         const field = inp.dataset.field;
         row[field] = inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value;
@@ -990,7 +998,7 @@ function bindEvent(event) {
   document.querySelectorAll('#task-body tr').forEach(tr => {
     const i = Number(tr.dataset.i);
     const row = event.tasks[i];
-    tr.querySelectorAll('input').forEach(inp => {
+    tr.querySelectorAll('input, textarea').forEach(inp => {
       inp.addEventListener('input', () => { row[inp.dataset.field] = inp.value; save(); });
       inp.addEventListener('change', () => renderContent());
     });
@@ -1002,6 +1010,11 @@ function bindEvent(event) {
       save();
       renderContent();
     });
+  });
+
+  document.querySelectorAll('textarea.wrap-cell').forEach(ta => {
+    autoGrow(ta);
+    ta.addEventListener('input', () => autoGrow(ta));
   });
 }
 
