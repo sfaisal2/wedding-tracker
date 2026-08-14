@@ -212,7 +212,6 @@ function defaultData() {
         date: '',
         time: '',
         location: '',
-        vendor: '',
         status: 'Planning',
         notes: 'This is example data so you can see how the app works. Rename this event, edit these rows, or delete them and add your own — everything is editable. Click "+ Add event" above to add more events (ceremony, reception, shower, rehearsal dinner, etc.).',
         budgetItems: [
@@ -247,6 +246,10 @@ function save() {
 function money(n) {
   n = Number(n) || 0;
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+function parseMoney(str) {
+  return parseFloat(String(str).replace(/[^0-9.\-]/g, '')) || 0;
 }
 
 function escapeHtml(str) {
@@ -351,7 +354,7 @@ function addEvent() {
   const newEvent = {
     id: genId(),
     name: 'New Event',
-    date: '', time: '', location: '', vendor: '', status: 'Planning', notes: '',
+    date: '', time: '', location: '', status: 'Planning', notes: '',
     budgetItems: [],
     tasks: []
   };
@@ -419,7 +422,7 @@ function dashboardHtml() {
   return `
     <div class="budget-input-row">
       <label for="total-budget">Total budget across all events ($):</label>
-      <input type="number" id="total-budget" min="0" step="1" value="${data.totalBudget || 0}">
+      <input type="text" inputmode="decimal" id="total-budget" class="money-field" value="${money(data.totalBudget || 0)}">
     </div>
     <div class="cards">
       <div class="card"><div class="label">Next event</div><div class="value">${nextEvent ? nextEvent.days + ' days' : '—'}</div>${nextEvent ? `<div class="task-meta" style="color:var(--muted);font-size:0.78rem;margin-top:2px;">${escapeHtml(nextEvent.name)}</div>` : ''}</div>
@@ -460,11 +463,10 @@ function dashboardHtml() {
 
 function bindDashboard() {
   document.getElementById('total-budget').addEventListener('input', (e) => {
-    data.totalBudget = parseFloat(e.target.value) || 0;
+    data.totalBudget = parseMoney(e.target.value);
     save();
-    document.querySelector('.card .value').closest('.cards');
-    renderContent();
   });
+  document.getElementById('total-budget').addEventListener('change', () => renderContent());
   document.getElementById('export-btn').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -528,8 +530,8 @@ function eventHtml(event) {
     <tr data-i="${i}">
       <td><input data-field="category" value="${escapeHtml(row.category)}"></td>
       <td><input data-field="item" value="${escapeHtml(row.item)}"></td>
-      <td class="num-cell"><input data-field="cost" type="number" min="0" value="${row.cost ?? 0}"></td>
-      <td class="num-cell"><input data-field="paid" type="number" min="0" value="${row.paid ?? 0}"></td>
+      <td class="num-cell"><input data-field="cost" type="text" inputmode="decimal" class="money-field" value="${money(row.cost ?? 0)}"></td>
+      <td class="num-cell"><input data-field="paid" type="text" inputmode="decimal" class="money-field" value="${money(row.paid ?? 0)}"></td>
       <td class="num-cell balance-cell">${money((row.cost || 0) - (row.paid || 0))}</td>
       <td>${selectHtml(budgetStatusOptions, row.status || 'To do', true)}</td>
       <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
@@ -693,7 +695,7 @@ function eventHtml(event) {
           <tr data-i="${i}" class="${row.status === 'Booked' ? 'venue-row-booked' : ''}">
             <td><textarea data-field="name" rows="1" class="wrap-cell">${escapeHtml(row.name)}</textarea></td>
             <td><textarea data-field="location" rows="1" class="wrap-cell">${escapeHtml(row.location || '')}</textarea></td>
-            <td class="num-cell"><input data-field="estimated" type="number" min="0" value="${row.estimated ?? 0}"></td>
+            <td class="num-cell"><input data-field="estimated" type="text" inputmode="decimal" class="money-field" value="${money(row.estimated ?? 0)}"></td>
             <td><input data-field="capacity" value="${escapeHtml(row.capacity || '')}"></td>
             <td>${selectHtml(venueStatusOptions, row.status, true)}</td>
             <td><input data-field="contact" value="${escapeHtml(row.contact || '')}"></td>
@@ -719,7 +721,6 @@ function eventHtml(event) {
         <div><label>Date</label><input type="date" id="event-date" value="${event.date || ''}"></div>
         <div><label>Time</label><input type="time" id="event-time" value="${event.time || ''}"></div>
         <div><label>Location</label><input type="text" id="event-location" value="${escapeHtml(event.location || '')}"></div>
-        <div><label>Vendor / contact</label><input type="text" id="event-vendor" value="${escapeHtml(event.vendor || '')}"></div>
         <div><label>Status</label>${selectHtml(statusOptions, event.status, true).replace('<select ', '<select id="event-status" ')}</div>
       </div>
       <div class="event-header-notes">
@@ -816,7 +817,6 @@ function bindEvent(event) {
   document.getElementById('event-date').addEventListener('change', (e) => { event.date = e.target.value; save(); });
   document.getElementById('event-time').addEventListener('change', (e) => { event.time = e.target.value; save(); });
   document.getElementById('event-location').addEventListener('input', (e) => { event.location = e.target.value; save(); });
-  document.getElementById('event-vendor').addEventListener('input', (e) => { event.vendor = e.target.value; save(); });
   document.getElementById('event-status').addEventListener('change', (e) => { event.status = e.target.value; save(); });
   document.getElementById('event-notes').addEventListener('input', (e) => { event.notes = e.target.value; save(); });
   document.getElementById('event-invite').addEventListener('input', (e) => { event.invitationImage = e.target.value; save(); });
@@ -847,9 +847,10 @@ function bindEvent(event) {
       const row = event.venueOptions[i];
       tr.querySelectorAll('input, textarea').forEach(inp => {
         inp.addEventListener('input', () => {
-          row[inp.dataset.field] = inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value;
+          row[inp.dataset.field] = inp.classList.contains('money-field') ? parseMoney(inp.value) : (inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value);
           save();
         });
+        inp.addEventListener('change', () => { if (inp.classList.contains('money-field')) renderContent(); });
       });
       tr.querySelector('select').addEventListener('change', (e) => { row.status = e.target.value; save(); renderContent(); });
       tr.querySelector('.del-venue-row').addEventListener('click', () => {
@@ -976,7 +977,7 @@ function bindEvent(event) {
     tr.querySelectorAll('input, textarea').forEach(inp => {
       inp.addEventListener('input', () => {
         const field = inp.dataset.field;
-        row[field] = inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value;
+        row[field] = inp.classList.contains('money-field') ? parseMoney(inp.value) : (inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value);
         if (field === 'cost' || field === 'paid') {
           if ((Number(row.cost) || 0) > 0 && Number(row.paid) === Number(row.cost)) {
             row.status = 'Done';
@@ -1017,6 +1018,12 @@ function bindEvent(event) {
     ta.addEventListener('input', () => autoGrow(ta));
   });
 }
+
+document.addEventListener('focusin', (e) => {
+  if (e.target.classList && e.target.classList.contains('money-field')) {
+    e.target.select();
+  }
+});
 
 // ---------- INIT ----------
 renderNav();
