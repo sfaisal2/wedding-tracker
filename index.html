@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wedding Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root {
     --pink: #b76e79;
@@ -197,6 +198,29 @@
   .invitation-preview { margin-top: 10px; }
   .invitation-preview img { max-width: 240px; max-height: 320px; border-radius: 8px; border: 1px solid var(--border); display: block; }
   .invitation-preview .invite-error { text-align: left; padding: 0; margin-top: 4px; color: var(--red); }
+
+  @media (max-width: 640px) {
+    header { padding: 12px 14px; }
+    header h1 { font-size: 1.15rem; }
+    nav { padding: 0 10px; }
+    nav button { padding: 10px 12px; font-size: 0.85rem; }
+    main { padding: 12px; }
+    .cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .card { padding: 10px; }
+    .card .value { font-size: 1.2rem; }
+    .section-title { font-size: 0.95rem; margin: 22px 0 10px; }
+    .event-name-input { font-size: 1.05rem; min-width: 0; }
+    .event-header { padding: 12px; }
+    .event-header-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    th, td { padding: 6px 8px; font-size: 0.8rem; }
+    .btn { padding: 9px 12px; font-size: 0.85rem; }
+    .toolbar { gap: 10px; }
+    .guest-stats { gap: 6px; }
+    .guest-stat { min-width: 72px; padding: 8px 10px; }
+    .guest-stat .value { font-size: 1rem; }
+    #back-to-top { bottom: 16px; right: 16px; width: 42px; height: 42px; font-size: 1.1rem; }
+    .budget-input-row { flex-wrap: wrap; }
+  }
 </style>
 </head>
 <body>
@@ -261,6 +285,123 @@ function load() {
 
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  pushToSupabase();
+}
+
+// ---------- SUPABASE SYNC ----------
+const SYNC_CONFIG_KEY = 'weddingTrackerSyncConfig';
+const SYNC_ROW_ID = 'main';
+let supabaseClient = null;
+let syncChannel = null;
+let syncStatus = 'disconnected'; // disconnected | connecting | synced | error
+let syncError = '';
+let lastSyncTime = null;
+let pushTimer = null;
+let applyingRemoteChange = false;
+
+function getSyncConfig() {
+  try {
+    const raw = localStorage.getItem(SYNC_CONFIG_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function setSyncConfig(cfg) {
+  localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+function clearSyncConfig() {
+  localStorage.removeItem(SYNC_CONFIG_KEY);
+}
+
+function initSync() {
+  const cfg = getSyncConfig();
+  if (!cfg || !cfg.url || !cfg.key) return;
+  try {
+    supabaseClient = window.supabase.createClient(cfg.url, cfg.key);
+    syncStatus = 'connecting';
+    pullFromSupabase(true);
+    subscribeToChanges();
+  } catch (e) {
+    syncStatus = 'error';
+    syncError = 'Could not connect with those credentials.';
+  }
+}
+
+async function pullFromSupabase(isInitial) {
+  if (!supabaseClient) return;
+  try {
+    const { data: row, error } = await supabaseClient
+      .from('wedding_data')
+      .select('*')
+      .eq('id', SYNC_ROW_ID)
+      .maybeSingle();
+    if (error) throw error;
+    if (row && row.data) {
+      applyingRemoteChange = true;
+      data = row.data;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      applyingRemoteChange = false;
+      renderNav();
+      renderContent();
+    } else if (isInitial) {
+      await pushToSupabaseImmediate();
+    }
+    syncStatus = 'synced';
+    lastSyncTime = new Date();
+  } catch (e) {
+    syncStatus = 'error';
+    syncError = 'Could not reach Supabase. Check your connection or credentials.';
+  }
+  if (activeTab === 'dashboard') renderContent();
+}
+
+async function pushToSupabaseImmediate() {
+  if (!supabaseClient) return;
+  try {
+    const { error } = await supabaseClient
+      .from('wedding_data')
+      .upsert({ id: SYNC_ROW_ID, data: data, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    syncStatus = 'synced';
+    lastSyncTime = new Date();
+  } catch (e) {
+    syncStatus = 'error';
+    syncError = 'Could not save to Supabase. Your changes are still saved locally.';
+  }
+  if (activeTab === 'dashboard') renderContent();
+}
+
+function pushToSupabase() {
+  if (!supabaseClient || applyingRemoteChange) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushToSupabaseImmediate, 800);
+}
+
+function subscribeToChanges() {
+  if (syncChannel) supabaseClient.removeChannel(syncChannel);
+  syncChannel = supabaseClient
+    .channel('wedding_data_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'wedding_data', filter: `id=eq.${SYNC_ROW_ID}` }, (payload) => {
+      if (payload.new && payload.new.data) {
+        applyingRemoteChange = true;
+        data = payload.new.data;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        applyingRemoteChange = false;
+        renderNav();
+        renderContent();
+      }
+    })
+    .subscribe();
+}
+
+function disconnectSync() {
+  if (syncChannel && supabaseClient) supabaseClient.removeChannel(syncChannel);
+  syncChannel = null;
+  supabaseClient = null;
+  syncStatus = 'disconnected';
+  clearSyncConfig();
+  renderContent();
 }
 
 function money(n) {
@@ -507,6 +648,11 @@ function dashboardHtml() {
     </div>
     </div>
 
+    ${sectionHeader('dash-sync', 'Sync across devices')}
+    ${sectionOpen('dash-sync')}
+    ${syncPanelHtml()}
+    </div>
+
     <div class="toolbar" style="margin-top:30px">
       <span style="font-size:0.85rem;color:var(--muted)">Backup your data (stored only in this browser):</span>
       <div>
@@ -518,12 +664,66 @@ function dashboardHtml() {
   `;
 }
 
+function syncPanelHtml() {
+  const cfg = getSyncConfig();
+  if (!cfg) {
+    return `
+      <p class="venue-intro">Connect this device to Supabase to sync your data live with your other devices.</p>
+      <div class="event-header-grid" style="margin-top:10px">
+        <div><label>Project URL</label><input type="text" id="sync-url" placeholder="https://xxxx.supabase.co"></div>
+        <div><label>Anon public key</label><input type="text" id="sync-key" placeholder="eyJ..."></div>
+      </div>
+      <button class="btn" id="sync-connect-btn" style="margin-top:10px">Connect</button>
+      ${syncError ? `<p class="empty-state" style="color:var(--red)">${escapeHtml(syncError)}</p>` : ''}
+    `;
+  }
+  const statusPill = syncStatus === 'synced'
+    ? `<span class="status-pill tag-green">Synced</span>`
+    : syncStatus === 'connecting'
+      ? `<span class="status-pill tag-amber">Connecting…</span>`
+      : syncStatus === 'error'
+        ? `<span class="status-pill tag-red">Sync error</span>`
+        : `<span class="status-pill tag-gray">Disconnected</span>`;
+  return `
+    <p class="venue-intro">${statusPill} Changes sync automatically with any other device connected to this same project.</p>
+    <p style="font-size:0.8rem;color:var(--muted);margin-top:6px">Last synced: ${lastSyncTime ? lastSyncTime.toLocaleTimeString() : '—'}</p>
+    ${syncError ? `<p class="empty-state" style="color:var(--red)">${escapeHtml(syncError)}</p>` : ''}
+    <button class="btn secondary" id="sync-disconnect-btn" style="margin-top:8px">Disconnect this device</button>
+  `;
+}
+
 function bindDashboard() {
   document.getElementById('total-budget').addEventListener('input', (e) => {
     data.totalBudget = parseMoney(e.target.value);
     save();
   });
   document.getElementById('total-budget').addEventListener('change', () => renderContent());
+
+  const connectBtn = document.getElementById('sync-connect-btn');
+  if (connectBtn) {
+    connectBtn.addEventListener('click', async () => {
+      const url = document.getElementById('sync-url').value.trim();
+      const key = document.getElementById('sync-key').value.trim();
+      if (!url || !key) {
+        syncError = 'Enter both the Project URL and anon public key.';
+        renderContent();
+        return;
+      }
+      syncError = '';
+      setSyncConfig({ url, key });
+      initSync();
+      renderContent();
+    });
+  }
+  const disconnectBtn = document.getElementById('sync-disconnect-btn');
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener('click', () => {
+      if (confirm('Disconnect this device from sync? Your data stays here locally, but this device will stop sending/receiving live updates.')) {
+        disconnectSync();
+      }
+    });
+  }
+
   document.getElementById('export-btn').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1113,6 +1313,7 @@ backToTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior:
 // ---------- INIT ----------
 renderNav();
 renderContent();
+initSync();
 </script>
 
 </body>
