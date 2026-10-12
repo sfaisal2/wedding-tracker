@@ -318,7 +318,31 @@ let syncStatus = 'disconnected'; // disconnected | connecting | synced | error
 let syncError = '';
 let lastSyncTime = null;
 let pushTimer = null;
+let pushesInFlight = 0;
+let recentPushes = [];        // canonical JSON of our last few uploads, to recognise self-echoes
+let pendingRemoteData = null; // remote change held back while the user is mid-edit
 let applyingRemoteChange = false;
+
+// Postgres jsonb reorders object keys, so compare data with keys sorted.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort()
+      .filter(k => value[k] !== undefined)
+      .map(k => JSON.stringify(k) + ':' + canonicalJson(value[k])).join(',') + '}';
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function applyRemoteData(remote) {
+  pendingRemoteData = null;
+  applyingRemoteChange = true;
+  data = remote;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  applyingRemoteChange = false;
+  renderNav();
+  renderContent();
+}
 
 function getSyncConfig() {
   try {
@@ -359,12 +383,7 @@ async function pullFromSupabase(isInitial) {
       .maybeSingle();
     if (error) throw error;
     if (row && row.data) {
-      applyingRemoteChange = true;
-      data = row.data;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      applyingRemoteChange = false;
-      renderNav();
-      renderContent();
+      applyRemoteData(row.data);
     } else if (isInitial) {
       await pushToSupabaseImmediate();
     }
@@ -379,6 +398,11 @@ async function pullFromSupabase(isInitial) {
 
 async function pushToSupabaseImmediate() {
   if (!supabaseClient) return;
+  clearTimeout(pushTimer);
+  pushTimer = null;
+  recentPushes.push(canonicalJson(data));
+  if (recentPushes.length > 10) recentPushes.shift();
+  pushesInFlight++;
   try {
     const { error } = await supabaseClient
       .from('wedding_data')
@@ -389,12 +413,16 @@ async function pushToSupabaseImmediate() {
   } catch (e) {
     syncStatus = 'error';
     syncError = 'Could not save to Supabase. Your changes are still saved locally.';
+  } finally {
+    pushesInFlight--;
   }
-  if (activeTab === 'dashboard') renderContent();
+  if (activeTab === 'dashboard' && !isEditingSomething()) renderContent();
 }
 
 function pushToSupabase() {
   if (!supabaseClient || applyingRemoteChange) return;
+  // A local edit supersedes any remote change we were holding back (whole-document sync).
+  pendingRemoteData = null;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(pushToSupabaseImmediate, 800);
 }
@@ -412,18 +440,19 @@ function subscribeToChanges() {
     .channel('wedding_data_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'wedding_data', filter: `id=eq.${SYNC_ROW_ID}` }, (payload) => {
       if (payload.new && payload.new.data) {
-        // Skip self-echoes: this is often just our own recent save being reflected back.
-        if (JSON.stringify(payload.new.data) === JSON.stringify(data)) return;
-        applyingRemoteChange = true;
-        data = payload.new.data;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        applyingRemoteChange = false;
-        // Don't yank focus/close an open dropdown while the user is mid-edit;
-        // the view will catch up next time it naturally re-renders.
-        if (!isEditingSomething()) {
-          renderNav();
-          renderContent();
+        const incoming = canonicalJson(payload.new.data);
+        // Skip self-echoes: our own recent saves being reflected back.
+        if (incoming === canonicalJson(data) || recentPushes.includes(incoming)) return;
+        // Local edits not yet uploaded will overwrite this anyway.
+        if (pushTimer || pushesInFlight > 0) return;
+        // Never swap out `data` while a field is focused: the field's handlers hold
+        // references into the current data, so typing would go into a detached copy
+        // and vanish on the next render. Apply once the user leaves the field.
+        if (isEditingSomething()) {
+          pendingRemoteData = payload.new.data;
+          return;
         }
+        applyRemoteData(payload.new.data);
       }
     })
     .subscribe();
@@ -1485,6 +1514,18 @@ document.addEventListener('focusin', (e) => {
   if (e.target.classList && e.target.classList.contains('money-field')) {
     e.target.select();
   }
+});
+
+// Apply a remote change that arrived mid-edit once focus has left the fields
+// (after the field's own change handler has saved and re-rendered).
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
+    if (pendingRemoteData && !isEditingSomething() && !pushTimer && pushesInFlight === 0) {
+      const remote = pendingRemoteData;
+      pendingRemoteData = null;
+      applyRemoteData(remote);
+    }
+  }, 0);
 });
 
 document.getElementById('content').addEventListener('click', (e) => {
