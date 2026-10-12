@@ -118,6 +118,22 @@
   .category-filter { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; }
   .category-filter select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem; font-family: inherit; }
 
+  th.select-cell, td.select-cell { width: 34px; text-align: center; padding-left: 6px; padding-right: 6px; }
+  .select-cell input[type="checkbox"] { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: var(--pink); vertical-align: middle; }
+  tr.is-selected td { background: #fbeef0; }
+  tr.is-selected:hover td { background: #f8e4e7; }
+  .sort-btn {
+    background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: inherit;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; text-align: left;
+  }
+  .sort-btn .sort-arrow { color: var(--muted); font-size: 0.72rem; opacity: 0.6; }
+  .sort-btn.active { color: var(--pink); }
+  .sort-btn.active .sort-arrow { color: var(--pink); opacity: 1; }
+  .sort-btn:focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; border-radius: 2px; }
+  tfoot tr.selected-totals td { background: #f3dde1; color: var(--ink); }
+  .selected-totals .selection-meta { font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+  .link-btn { background: none; border: none; padding: 0; color: var(--pink); cursor: pointer; font: inherit; font-weight: 600; text-decoration: underline; }
+
   .timeline-list { display: flex; flex-direction: column; gap: 6px; }
   .timeline-item {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
@@ -273,6 +289,9 @@ function defaultData() {
 let data = load();
 let activeTab = 'dashboard';
 let budgetFilters = {};
+// Per-event UI state for the budget table — not saved or synced.
+let budgetSelections = {}; // eventId -> Set of budgetItems indexes
+let budgetSorts = {};      // eventId -> { key, dir: 'asc' | 'desc' }
 let collapsedSections = {};
 let uploadingInvite = false;
 let inviteUploadError = '';
@@ -526,6 +545,58 @@ const venueStatusOptions = ['Considering', 'Contacted', 'Toured', 'Booked', 'Rej
 const budgetStatusOptions = ['To do', 'In Progress', 'Done'];
 const rsvpOptions = ['Coming', 'Not Coming', 'Tentative', 'Unconfirmed'];
 const confirmedOptions = ['Yes', 'No'];
+
+// ---------- BUDGET SELECTION & SORTING ----------
+function getBudgetSelection(event) {
+  if (!budgetSelections[event.id]) budgetSelections[event.id] = new Set();
+  const sel = budgetSelections[event.id];
+  // Drop indexes that no longer exist (e.g. rows removed on another device).
+  sel.forEach(i => { if (i >= event.budgetItems.length) sel.delete(i); });
+  return sel;
+}
+
+// Returns a comparable value, or null for "empty" (always sorted last).
+function budgetSortValue(row, key) {
+  switch (key) {
+    case 'category':
+    case 'item': {
+      const v = (row[key] || '').trim().toLowerCase();
+      return v === '' ? null : v;
+    }
+    case 'cost':
+    case 'paid':
+      return Number(row[key]) || 0;
+    case 'balance':
+      return (Number(row.cost) || 0) - (Number(row.paid) || 0);
+    case 'status':
+      return budgetStatusOptions.indexOf(row.status || 'To do');
+    case 'dueDate':
+      return row.dueDate || null;
+  }
+  return null;
+}
+
+function sortBudgetItems(items, sort) {
+  if (!sort) return items;
+  const mult = sort.dir === 'desc' ? -1 : 1;
+  return items.sort((a, b) => {
+    const va = budgetSortValue(a.row, sort.key);
+    const vb = budgetSortValue(b.row, sort.key);
+    if (va === null && vb === null) return a.i - b.i;
+    if (va === null) return 1;
+    if (vb === null) return -1;
+    const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb;
+    return cmp !== 0 ? cmp * mult : a.i - b.i;
+  });
+}
+
+function budgetSortHeader(event, label, key) {
+  const sort = budgetSorts[event.id];
+  const active = sort && sort.key === key;
+  const arrow = active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕';
+  const ariaSort = active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
+  return { ariaSort, html: `<button type="button" class="sort-btn ${active ? 'active' : ''}" data-sort="${key}" title="Sort by ${label}">${label}<span class="sort-arrow" aria-hidden="true">${arrow}</span></button>` };
+}
 
 // ---------- NAV ----------
 function renderNav() {
@@ -794,12 +865,39 @@ function eventHtml(event) {
       const cat = (row.category || '').trim();
       return currentFilter === NO_CATEGORY ? cat === '' : cat === currentFilter;
     });
+  sortBudgetItems(visibleBudgetItems, budgetSorts[event.id]);
 
   const totalEst = visibleBudgetItems.reduce((s, { row }) => s + (Number(row.cost) || 0), 0);
   const totalPaid = visibleBudgetItems.reduce((s, { row }) => s + (Number(row.paid) || 0), 0);
 
+  const selection = getBudgetSelection(event);
+  const visibleSelectedCount = visibleBudgetItems.filter(({ i }) => selection.has(i)).length;
+  const allVisibleSelected = visibleBudgetItems.length > 0 && visibleSelectedCount === visibleBudgetItems.length;
+  const hiddenSelectedCount = selection.size - visibleSelectedCount;
+  const selectedRows = [...selection].map(i => event.budgetItems[i]);
+  const selCost = selectedRows.reduce((s, r) => s + (Number(r.cost) || 0), 0);
+  const selPaid = selectedRows.reduce((s, r) => s + (Number(r.paid) || 0), 0);
+  const selCategoryCount = new Set(selectedRows.map(r => (r.category || '').trim())).size;
+  const selectedTotalsHtml = selection.size ? `
+          <tr class="selected-totals">
+            <td colspan="3">
+              Selected (${selection.size} item${selection.size === 1 ? '' : 's'})
+              <span class="selection-meta">· ${selCategoryCount} categor${selCategoryCount === 1 ? 'y' : 'ies'}${hiddenSelectedCount ? ` · ${hiddenSelectedCount} hidden by filter` : ''}</span>
+            </td>
+            <td class="num-cell">${money(selCost)}</td>
+            <td class="num-cell">${money(selPaid)}</td>
+            <td class="num-cell">${money(selCost - selPaid)}</td>
+            <td colspan="4"><button type="button" class="link-btn" id="budget-clear-selection">Deselect all</button></td>
+          </tr>` : '';
+
+  const sortHeaders = {};
+  [['Category', 'category'], ['Item / Vendor', 'item'], ['Cost', 'cost'], ['Paid', 'paid'],
+   ['Balance', 'balance'], ['Status', 'status'], ['Due date', 'dueDate']]
+    .forEach(([label, key]) => { sortHeaders[key] = budgetSortHeader(event, label, key); });
+
   const budgetRows = visibleBudgetItems.length ? visibleBudgetItems.map(({ row, i }) => `
-    <tr data-i="${i}">
+    <tr data-i="${i}" class="${selection.has(i) ? 'is-selected' : ''}">
+      <td class="select-cell"><input type="checkbox" class="budget-select" ${selection.has(i) ? 'checked' : ''} aria-label="Select ${escapeHtml(row.item || 'expense')}"></td>
       <td><input data-field="category" value="${escapeHtml(row.category)}"></td>
       <td><input data-field="item" value="${escapeHtml(row.item)}"></td>
       <td class="num-cell"><input data-field="cost" type="text" inputmode="decimal" class="money-field" value="${money(row.cost ?? 0)}"></td>
@@ -809,7 +907,7 @@ function eventHtml(event) {
       <td><input data-field="dueDate" type="date" value="${row.dueDate || ''}"></td>
       <td><textarea data-field="notes" rows="1" class="wrap-cell">${escapeHtml(row.notes || '')}</textarea></td>
       <td class="row-actions"><button class="del-budget-row" title="Delete row">✕</button></td>
-    </tr>`).join('') : `<tr><td colspan="9" class="empty-state">No expenses in this category.</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="10" class="empty-state">No expenses in this category.</td></tr>`;
 
   const categoryTotalsMap = {};
   event.budgetItems.forEach(row => {
@@ -1041,26 +1139,28 @@ function eventHtml(event) {
       <table>
         <thead>
           <tr>
-            <th style="width:11%">Category</th>
-            <th style="width:15%">Item / Vendor</th>
-            <th style="width:9%">Cost</th>
-            <th style="width:9%">Paid</th>
-            <th style="width:9%">Balance</th>
-            <th style="width:11%">Status</th>
-            <th style="width:10%">Due date</th>
-            <th style="width:19%">Notes</th>
+            <th class="select-cell"><input type="checkbox" id="budget-select-all" ${allVisibleSelected ? 'checked' : ''} ${visibleBudgetItems.length ? '' : 'disabled'} title="Select all / deselect all" aria-label="Select all / deselect all shown expenses"></th>
+            <th style="width:11%" aria-sort="${sortHeaders.category.ariaSort}">${sortHeaders.category.html}</th>
+            <th style="width:15%" aria-sort="${sortHeaders.item.ariaSort}">${sortHeaders.item.html}</th>
+            <th style="width:9%" aria-sort="${sortHeaders.cost.ariaSort}">${sortHeaders.cost.html}</th>
+            <th style="width:9%" aria-sort="${sortHeaders.paid.ariaSort}">${sortHeaders.paid.html}</th>
+            <th style="width:9%" aria-sort="${sortHeaders.balance.ariaSort}">${sortHeaders.balance.html}</th>
+            <th style="width:11%" aria-sort="${sortHeaders.status.ariaSort}">${sortHeaders.status.html}</th>
+            <th style="width:10%" aria-sort="${sortHeaders.dueDate.ariaSort}">${sortHeaders.dueDate.html}</th>
+            <th style="width:16%">Notes</th>
             <th style="width:4%"></th>
           </tr>
         </thead>
         <tbody id="budget-body">${budgetRows}</tbody>
         <tfoot>
           <tr>
-            <td colspan="2">Totals${currentFilter ? ' (filtered)' : ''}</td>
+            <td colspan="3">Totals${currentFilter ? ' (filtered)' : ''}</td>
             <td class="num-cell">${money(totalEst)}</td>
             <td class="num-cell">${money(totalPaid)}</td>
             <td class="num-cell">${money(totalEst - totalPaid)}</td>
             <td colspan="4"></td>
           </tr>
+          ${selectedTotalsHtml}
         </tfoot>
       </table>
     </div>
@@ -1293,11 +1393,46 @@ function bindEvent(event) {
     renderContent();
   });
 
+  document.querySelectorAll('thead .sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.sort;
+      const cur = budgetSorts[event.id];
+      // Cycle: ascending → descending → original order
+      if (!cur || cur.key !== key) budgetSorts[event.id] = { key, dir: 'asc' };
+      else if (cur.dir === 'asc') budgetSorts[event.id] = { key, dir: 'desc' };
+      else delete budgetSorts[event.id];
+      renderContent();
+    });
+  });
+
+  const budgetSelection = getBudgetSelection(event);
+  const selectAll = document.getElementById('budget-select-all');
+  const visibleBudgetIdx = [...document.querySelectorAll('#budget-body tr[data-i]')].map(tr => Number(tr.dataset.i));
+  const visibleSelected = visibleBudgetIdx.filter(i => budgetSelection.has(i)).length;
+  selectAll.indeterminate = visibleSelected > 0 && visibleSelected < visibleBudgetIdx.length;
+  selectAll.addEventListener('change', () => {
+    // Acts on the rows currently shown, so a filtered category can be added/removed in one click.
+    const selectAllVisible = visibleSelected < visibleBudgetIdx.length;
+    visibleBudgetIdx.forEach(i => selectAllVisible ? budgetSelection.add(i) : budgetSelection.delete(i));
+    renderContent();
+  });
+  const clearSelectionBtn = document.getElementById('budget-clear-selection');
+  if (clearSelectionBtn) {
+    clearSelectionBtn.addEventListener('click', () => {
+      budgetSelection.clear();
+      renderContent();
+    });
+  }
+
   document.querySelectorAll('#budget-body tr').forEach(tr => {
     if (!tr.dataset.i) return;
     const i = Number(tr.dataset.i);
     const row = event.budgetItems[i];
-    tr.querySelectorAll('input, textarea').forEach(inp => {
+    tr.querySelector('.budget-select').addEventListener('change', (e) => {
+      if (e.target.checked) budgetSelection.add(i); else budgetSelection.delete(i);
+      renderContent();
+    });
+    tr.querySelectorAll('input[data-field], textarea').forEach(inp => {
       inp.addEventListener('input', () => {
         const field = inp.dataset.field;
         row[field] = inp.classList.contains('money-field') ? parseMoney(inp.value) : (inp.type === 'number' ? (parseFloat(inp.value) || 0) : inp.value);
@@ -1314,6 +1449,9 @@ function bindEvent(event) {
     tr.querySelector('select').addEventListener('change', (e) => { row.status = e.target.value; save(); renderContent(); });
     tr.querySelector('.del-budget-row').addEventListener('click', () => {
       event.budgetItems.splice(i, 1);
+      // Shift selected indexes down past the removed row.
+      const shifted = [...budgetSelection].filter(j => j !== i).map(j => j > i ? j - 1 : j);
+      budgetSelections[event.id] = new Set(shifted);
       save();
       renderContent();
     });
