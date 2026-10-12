@@ -440,11 +440,12 @@ function disconnectSync() {
 
 function money(n) {
   n = Number(n) || 0;
-  return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function parseMoney(str) {
-  return parseFloat(String(str).replace(/[^0-9.\-]/g, '')) || 0;
+  const n = parseFloat(String(str).replace(/[^0-9.\-]/g, '')) || 0;
+  return Math.round(n * 100) / 100; // keep to whole cents
 }
 
 function escapeHtml(str) {
